@@ -3082,6 +3082,9 @@ static void set_identity(const char *program_name)
 
 int main(int argc, char **argv)
 {
+	fprintf(stderr, "#####################\n");
+	fprintf(stderr, "### HAProxy: MLLB ###\n");
+	fprintf(stderr, "#####################\n");
 	int err, retry;
 	struct rlimit limit;
 	int pidfd = -1;
