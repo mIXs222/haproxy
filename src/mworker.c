@@ -660,7 +660,7 @@ static int cli_parse_reload(char **args, char *payload, struct appctx *appctx, v
 
 /* Displays if the current reload failed or succeed.
  * If the startup-logs is available, dump it.  */
-static int cli_io_handler_show_status(struct appctx *appctx)
+static int cli_io_handler_show_loadstatus(struct appctx *appctx)
 {
 	char *env;
 	struct stconn *sc = appctx_sc(appctx);
@@ -681,7 +681,7 @@ static int cli_io_handler_show_status(struct appctx *appctx)
 	} else if (strcmp(env, "1") == 0) {
 		chunk_printf(&trash, "Success=1\n");
 	}
-
+#ifdef USE_SHM_OPEN
 	if (startup_logs && b_data(&startup_logs->buf) > 1)
 		chunk_appendf(&trash, "--\n");
 
@@ -693,6 +693,10 @@ static int cli_io_handler_show_status(struct appctx *appctx)
 		ring_attach_cli(startup_logs, appctx, 0);
 		return 0;
 	}
+#else
+	if (applet_putchk(appctx, &trash) == -1)
+		return 0;
+#endif
 	return 1;
 }
 
@@ -753,7 +757,7 @@ static struct cli_kw_list cli_kws = {{ },{
 	{ { "@master", NULL },         "@master                                 : send a command to the master process", cli_parse_default, NULL, NULL, NULL, ACCESS_MASTER_ONLY},
 	{ { "show", "proc", NULL },    "show proc                               : show processes status", cli_parse_default, cli_io_handler_show_proc, NULL, NULL, ACCESS_MASTER_ONLY},
 	{ { "reload", NULL },          "reload                                  : reload haproxy", cli_parse_reload, NULL, NULL, NULL, ACCESS_MASTER_ONLY},
-	{ { "_loadstatus", NULL },     NULL,                                                             cli_parse_default, cli_io_handler_show_status, NULL, NULL, ACCESS_MASTER_ONLY},
+	{ { "_loadstatus", NULL },     NULL,                                                             cli_parse_default, cli_io_handler_show_loadstatus, NULL, NULL, ACCESS_MASTER_ONLY},
 	{{},}
 }};
 

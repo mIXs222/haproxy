@@ -290,7 +290,7 @@ static int cli_parse_show_events(char **args, char *payload, struct appctx *appc
 void sink_setup_proxy(struct proxy *px)
 {
 	px->last_change = now.tv_sec;
-	px->cap = PR_CAP_FE | PR_CAP_BE | PR_CAP_INT;
+	px->cap = PR_CAP_BE;
 	px->maxconn = 0;
 	px->conn_retries = 1;
 	px->timeout.server = TICK_ETERNITY;
@@ -994,7 +994,7 @@ int cfg_parse_ring(const char *file, int linenum, char **args, int kwm)
 				err_code |= ERR_ALERT | ERR_FATAL;
 				goto err;
 			}
-                        if (args[1][2] == 'c')
+                        if (args[1][0] == 'c')
                                 cfg_sink->forward_px->timeout.connect = tout;
                         else
                                 cfg_sink->forward_px->timeout.server = tout;
@@ -1094,6 +1094,10 @@ struct sink *sink_new_from_logsrv(struct logsrv *logsrv)
 	p->id = strdup(logsrv->ring_name);
 	p->conf.args.file = p->conf.file = strdup(logsrv->conf.file);
 	p->conf.args.line = p->conf.line = logsrv->conf.line;
+
+	/* Set default connect and server timeout */
+	p->timeout.connect = MS_TO_TICKS(1000);
+	p->timeout.server = MS_TO_TICKS(5000);
 
 	/* allocate a new server to forward messages
 	 * from ring buffer
