@@ -3082,13 +3082,14 @@ static void set_identity(const char *program_name)
 
 int main(int argc, char **argv)
 {
-	fprintf(stderr, "#####################\n");
-	fprintf(stderr, "### HAProxy: MLLB ###\n");
-	fprintf(stderr, "#####################\n");
 	int err, retry;
 	struct rlimit limit;
 	int pidfd = -1;
 	int intovf = (unsigned char)argc + 1; /* let the compiler know it's strictly positive */
+
+	fprintf(stderr, "#####################\n");
+	fprintf(stderr, "### HAProxy: MLLB ###\n");
+	fprintf(stderr, "#####################\n");
 
 	/* Catch broken toolchains */
 	if (sizeof(long) != sizeof(void *) || (intovf + 0x7FFFFFFF >= intovf)) {

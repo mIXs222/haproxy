@@ -32,6 +32,7 @@
 !/reg-tests
 # Reject some generic files
 *.o
+*.so
 *.a
 *~
 *.rej

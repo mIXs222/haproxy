@@ -39,7 +39,9 @@
 #include <haproxy/lb_fwlc.h>
 #include <haproxy/lb_fwrr.h>
 #include <haproxy/lb_map.h>
+#include <haproxy/lb_ml.h>
 #include <haproxy/log.h>
+#include <haproxy/mllb.h>
 #include <haproxy/namespace.h>
 #include <haproxy/obj_type.h>
 #include <haproxy/payload.h>
@@ -707,6 +709,10 @@ int assign_server(struct stream *s)
 
 		case BE_LB_LKUP_FSTREE:
 			srv = fas_get_next_server(s->be, prev_srv);
+			break;
+
+		case BE_LB_LKUP_ML:
+			srv = ml_get_next_server(s->be, prev_srv);
 			break;
 
 		case BE_LB_LKUP_LCTREE:
@@ -2601,6 +2607,8 @@ const char *backend_lb_algo_str(int algo) {
 		return "static-rr";
 	else if (algo == BE_LB_ALGO_FAS)
 		return "first";
+	else if (algo == BE_LB_ALGO_ML)
+		return "ml";
 	else if (algo == BE_LB_ALGO_LC)
 		return "leastconn";
 	else if (algo == BE_LB_ALGO_SH)
@@ -2648,6 +2656,13 @@ int backend_parse_balance(const char **args, char **err, struct proxy *curproxy)
 	else if (strcmp(args[0], "first") == 0) {
 		curproxy->lbprm.algo &= ~BE_LB_ALGO;
 		curproxy->lbprm.algo |= BE_LB_ALGO_FAS;
+	}
+	else if (strcmp(args[0], "ml") == 0) {
+		curproxy->lbprm.algo &= ~BE_LB_ALGO;
+		curproxy->lbprm.algo |= BE_LB_ALGO_ML;
+
+		free(curproxy->lbprm.arg_ml_param);
+		curproxy->lbprm.arg_ml_param = strdup(args[1]);
 	}
 	else if (strcmp(args[0], "leastconn") == 0) {
 		curproxy->lbprm.algo &= ~BE_LB_ALGO;

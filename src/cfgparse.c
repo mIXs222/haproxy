@@ -64,6 +64,7 @@
 #include <haproxy/lb_fwlc.h>
 #include <haproxy/lb_fwrr.h>
 #include <haproxy/lb_map.h>
+#include <haproxy/lb_ml.h>
 #include <haproxy/listener.h>
 #include <haproxy/log.h>
 #include <haproxy/sink.h>
@@ -3886,9 +3887,15 @@ out_uri_auth_compat:
 			if ((curproxy->lbprm.algo & BE_LB_PARM) == BE_LB_CB_LC) {
 				curproxy->lbprm.algo |= BE_LB_LKUP_LCTREE | BE_LB_PROP_DYN;
 				fwlc_init_server_tree(curproxy);
-			} else {
+			} else if ((curproxy->lbprm.algo & BE_LB_PARM) == BE_LB_CB_FAS) {
 				curproxy->lbprm.algo |= BE_LB_LKUP_FSTREE | BE_LB_PROP_DYN;
 				fas_init_server_tree(curproxy);
+			} else if ((curproxy->lbprm.algo & BE_LB_PARM) == BE_LB_CB_ML) {
+				curproxy->lbprm.algo |= BE_LB_LKUP_ML | BE_LB_PROP_DYN;
+				ml_init_server_tree(curproxy, curproxy->lbprm.arg_ml_param);  // TODO: parse from args
+			} else {
+				printf("Invalid curproxy->lbprm.algo: %x", curproxy->lbprm.algo);
+				exit(-1);
 			}
 			break;
 

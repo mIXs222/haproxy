@@ -936,7 +936,8 @@ ifneq ($(EXTRA_OBJS),)
 OBJS += $(EXTRA_OBJS)
 endif
 
-OBJS += src/mux_h2.o src/mux_fcgi.o src/mux_h1.o src/tcpcheck.o               \
+OBJS += src/lb_ml.o src/mllb.so 																							\
+				src/mux_h2.o src/mux_fcgi.o src/mux_h1.o src/tcpcheck.o               \
         src/stream.o src/stats.o src/http_ana.o src/server.o                  \
         src/stick_table.o src/sample.o src/flt_spoe.o src/tools.o             \
         src/log.o src/cfgparse.o src/peers.o src/backend.o src/resolvers.o    \
@@ -1007,7 +1008,7 @@ else
 endif
 
 haproxy: $(OPTIONS_OBJS) $(OBJS)
-	$(cmd_LD) $(LDFLAGS) -o $@ $^ $(LDOPTS)
+	$(cmd_LD) $(LDFLAGS) -o $@ $^ $(LDOPTS) -lstdc++ -lm
 
 objsize: haproxy
 	$(Q)objdump -t $^|grep ' g '|grep -F '.text'|awk '{print $$5 FS $$6}'|sort
@@ -1059,6 +1060,9 @@ src/haproxy.o:	src/haproxy.c $(DEP)
 	      -DBUILD_DEBUG='"$(strip $(DEBUG))"' \
 	      -DBUILD_FEATURES='"$(strip $(BUILD_FEATURES))"' \
 	       -c -o $@ $<
+
+src/mllb.so: src/mllb.cc
+	$(cmd_CC) $(COPTS) --std=c++20 -fPIC -shared -c -o $@ $<
 
 install-man:
 	$(Q)$(INSTALL) -d "$(DESTDIR)$(MANDIR)"/man1

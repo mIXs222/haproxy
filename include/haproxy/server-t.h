@@ -308,6 +308,8 @@ struct server {
 
 	struct eb_root *lb_tree;                /* we want to know in what tree the server is */
 	struct tree_occ *lb_nodes;              /* lb_nodes_tot * struct tree_occ */
+	void* lb_mlb;														/* mllb::ModelLB */
+	int lb_mlb_id;													/* server ID in mllb::ModelLB */
 	unsigned lb_nodes_tot;                  /* number of allocated lb_nodes (C-HASH) */
 	unsigned lb_nodes_now;                  /* number of lb_nodes placed in the tree (C-HASH) */
 

@@ -28,6 +28,7 @@
 #include <haproxy/lb_fwlc-t.h>
 #include <haproxy/lb_fwrr-t.h>
 #include <haproxy/lb_map-t.h>
+#include <haproxy/lb_ml-t.h>
 #include <haproxy/server-t.h>
 #include <haproxy/thread-t.h>
 
@@ -58,6 +59,7 @@
 /* BE_LB_CB_* is used with BE_LB_KIND_CB */
 #define BE_LB_CB_LC     0x00000  /* least-connections */
 #define BE_LB_CB_FAS    0x00001  /* first available server (opposite of leastconn) */
+#define BE_LB_CB_ML     0x00002  /* model-based LB using connections */
 
 #define BE_LB_PARM      0x000FF  /* mask to get/clear the LB param */
 
@@ -84,6 +86,7 @@
 #define BE_LB_ALGO_RND  (BE_LB_KIND_RR | BE_LB_NEED_NONE | BE_LB_RR_RANDOM) /* random value */
 #define BE_LB_ALGO_LC   (BE_LB_KIND_CB | BE_LB_NEED_NONE | BE_LB_CB_LC)    /* least connections */
 #define BE_LB_ALGO_FAS  (BE_LB_KIND_CB | BE_LB_NEED_NONE | BE_LB_CB_FAS)   /* first available server */
+#define BE_LB_ALGO_ML   (BE_LB_KIND_CB | BE_LB_NEED_NONE | BE_LB_CB_ML)   /* model-based */
 #define BE_LB_ALGO_SRR  (BE_LB_KIND_RR | BE_LB_NEED_NONE | BE_LB_RR_STATIC) /* static round robin */
 #define BE_LB_ALGO_SH	(BE_LB_KIND_HI | BE_LB_NEED_ADDR | BE_LB_HASH_SRC) /* hash: source IP */
 #define BE_LB_ALGO_UH	(BE_LB_KIND_HI | BE_LB_NEED_HTTP | BE_LB_HASH_URI) /* hash: HTTP URI  */
@@ -103,6 +106,7 @@
 #define BE_LB_LKUP_LCTREE 0x30000  /* FWLC tree lookup */
 #define BE_LB_LKUP_CHTREE 0x40000  /* consistent hash  */
 #define BE_LB_LKUP_FSTREE 0x50000  /* FAS tree lookup */
+#define BE_LB_LKUP_ML     0x60000  /* model-based lookup */
 #define BE_LB_LKUP        0x70000  /* mask to get just the LKUP value */
 
 /* additional properties */
@@ -145,6 +149,7 @@ struct lbprm {
 		struct lb_fwlc fwlc;
 		struct lb_chash chash;
 		struct lb_fas fas;
+		struct lb_ml ml;
 	};
 	int algo;			/* load balancing algorithm and variants: BE_LB_* */
 	int tot_wact, tot_wbck;		/* total effective weights of active and backup servers */
@@ -160,6 +165,7 @@ struct lbprm {
 	int   arg_opt1;			/* extra option 1 for the LB algo (algo-specific) */
 	int   arg_opt2;			/* extra option 2 for the LB algo (algo-specific) */
 	int   arg_opt3;			/* extra option 3 for the LB algo (algo-specific) */
+	char *arg_ml_param; /* path to model parameter */
 	__decl_thread(HA_RWLOCK_T lock);
 	struct server *fbck;		/* first backup server when !PR_O_USE_ALL_BK, or NULL */
 
