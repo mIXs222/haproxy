@@ -288,7 +288,9 @@ struct server *ml_get_next_server(struct proxy *p, struct server *srvtoavoid)
 
 	srv = avoided = NULL;
 
-	HA_RWLOCK_RDLOCK(LBPRM_LOCK, &p->lbprm.lock);
+
+	// HA_RWLOCK_RDLOCK(LBPRM_LOCK, &p->lbprm.lock);
+	HA_RWLOCK_WRLOCK(LBPRM_LOCK, &p->lbprm.lock);
 	if (p->srv_act)
 		mlb = p->lbprm.ml.act;
 	else if (p->lbprm.fbck) {
@@ -320,6 +322,7 @@ struct server *ml_get_next_server(struct proxy *p, struct server *srvtoavoid)
 		srv = avoided;
   // printf("ml_get_next_server: %p\n", srv);
   out:
-	HA_RWLOCK_RDUNLOCK(LBPRM_LOCK, &p->lbprm.lock);
+	// HA_RWLOCK_RDUNLOCK(LBPRM_LOCK, &p->lbprm.lock);
+	HA_RWLOCK_WRUNLOCK(LBPRM_LOCK, &p->lbprm.lock);
 	return srv;
 }

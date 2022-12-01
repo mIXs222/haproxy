@@ -1,5 +1,6 @@
 #include "haproxy/mllb.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
@@ -79,14 +80,14 @@ public:
 
   // feature vector --> probability vector
   Eigen::VectorXd forward(Eigen::MatrixXd server_features) {
-    std::cout << "LBNetV1: server_features.T=\n" << server_features.transpose() << std::endl;
+    // std::cout << "LBNetV1: server_features.T=\n" << server_features.transpose() << std::endl;
     // std::cout << "LBNetV1: server_features * fc1= " << server_features * fc1 << std::endl;
     // std::cout << "LBNetV1: relu(server_features * fc1)= " << relu(server_features * fc1) << std::endl;
     Eigen::MatrixXd logits = relu(server_features * fc1) * policy_fc_last;
     // std::cout << "LBNetV1: logits= " << logits << std::endl;
     // std::cout << "LBNetV1: vectorize(logits)= " << vectorize(logits) << std::endl;
     Eigen::VectorXd ps = softmax(vectorize(logits));
-    std::cout << "LBNetV1: ps.T=\n" << ps.transpose() << std::endl;
+    // std::cout << "LBNetV1: ps.T=\n" << ps.transpose() << std::endl;
     return ps;
   }
   
@@ -120,10 +121,10 @@ public:
   ServerStat(void* server_struct) : server_struct_(server_struct), num_conns_history_(), current_num_conns_(0) {}
   void fill_feature(Eigen::MatrixXd &server_features, int row_idx) {
     assert(server_features.cols() == HISTORY_LENGTH);
+    assert(num_conns_history_.size() <= HISTORY_LENGTH);
     int col_idx = HISTORY_LENGTH - num_conns_history_.size();
-    for (int num_conn : num_conns_history_) {
-      server_features(row_idx, col_idx) = num_conn;
-      ++col_idx;
+    for (int i = std::max(0, (int) num_conns_history_.size() - HISTORY_LENGTH); i < num_conns_history_.size(); ++i, ++col_idx) {
+      server_features(row_idx, col_idx) = num_conns_history_[i];
     }
   }
 
@@ -134,6 +135,7 @@ public:
 
   void drop_conn() {
     --current_num_conns_;
+    --current_num_conns_;  // BUG: why see take_conn twice?
     assert(current_num_conns_ >= 0);
   }
 
@@ -164,7 +166,7 @@ class ModelLB {
     assert(idx < server_stats_.size());
     for (auto& [server_id, server_stat] : server_stats_) {
       if (idx-- <= 0) {
-        std::cout << "select_server [" << server_id << "]" << std::endl;
+        // std::cout << "select_server [" << server_id << "]" << std::endl;
         return server_stat.server_struct_;
       }
     }
@@ -183,13 +185,13 @@ public:
 
   int server_up(void* server_struct) {
     int server_id = ++server_counter_;
-    std::cout << "server_up [" << server_id << "]" << std::endl;
+    // std::cout << "server_up [" << server_id << "]" << std::endl;
     server_stats_.emplace(server_id, ServerStat(server_struct));
     return server_id;
   }
 
   void server_down(void* server_struct, int server_id) {
-    std::cout << "server_down [" << server_id << "]" << std::endl;
+    // std::cout << "server_down [" << server_id << "]" << std::endl;
     assert(server_stats_.contains(server_id));
     auto it = server_stats_.find(server_id);
     assert(it != server_stats_.end());
@@ -198,13 +200,13 @@ public:
   }
 
   void take_conn(void* server_struct, int server_id) {
-    std::cout << "take_conn [" << server_id << "]" << std::endl;
+    // std::cout << "take_conn [" << server_id << "]" << std::endl;
     assert(server_stats_.contains(server_id));
     server_stats_.find(server_id)->second.take_conn();
   }
 
   void drop_conn(void* server_struct, int server_id) {
-    std::cout << "drop_conn [" << server_id << "]" << std::endl;
+    // std::cout << "drop_conn [" << server_id << "]" << std::endl;
     assert(server_stats_.contains(server_id));
     server_stats_.find(server_id)->second.drop_conn();
   }
