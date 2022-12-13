@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <optional>
 #include <random>
 #include <string>
@@ -63,7 +64,7 @@ inline Eigen::VectorXd softmax(const Eigen::VectorXd &x) {
   return (xMinusMax.rowwise() - xMinusMax.exp().colwise().sum().log()).exp();
 }
 
-class LBNetV1 {
+class LBNet {
   // Per-server FCNN with one hidden layer
   Eigen::MatrixXd fc1;  // feature x hidden
   Eigen::MatrixXd policy_fc_last;  // hidden x 1
@@ -73,24 +74,24 @@ class LBNetV1 {
   std::uniform_real_distribution<double> unif_dist;
 
 public:
-  LBNetV1(const ParamDict &param_dict)
+  LBNet(const ParamDict &param_dict)
     : fc1(param_dict.at("fc1")),
       policy_fc_last(param_dict.at("policy_fc_last")),
       gen(std::time(nullptr)),
       unif_dist(0.0, 1.0) {
-    // std::cout << "LBNetV1: fc1= " << fc1 << ", policy_fc_last= " << policy_fc_last << std::endl;
+    // std::cout << "LBNet: fc1= " << fc1 << ", policy_fc_last= " << policy_fc_last << std::endl;
   }
 
   // feature vector --> probability vector
   Eigen::VectorXd forward(Eigen::MatrixXd server_features) {
-    // std::cout << "LBNetV1: server_features.T=\n" << server_features.transpose() << std::endl;
-    // std::cout << "LBNetV1: server_features * fc1= " << server_features * fc1 << std::endl;
-    // std::cout << "LBNetV1: relu(server_features * fc1)= " << relu(server_features * fc1) << std::endl;
+    // std::cout << "LBNet: server_features.T=\n" << server_features.transpose() << std::endl;
+    // std::cout << "LBNet: server_features * fc1= " << server_features * fc1 << std::endl;
+    // std::cout << "LBNet: relu(server_features * fc1)= " << relu(server_features * fc1) << std::endl;
     Eigen::MatrixXd logits = relu(server_features * fc1) * policy_fc_last;
-    // std::cout << "LBNetV1: logits= " << logits << std::endl;
-    // std::cout << "LBNetV1: vectorize(logits)= " << vectorize(logits) << std::endl;
+    // std::cout << "LBNet: logits= " << logits << std::endl;
+    // std::cout << "LBNet: vectorize(logits)= " << vectorize(logits) << std::endl;
     Eigen::VectorXd ps = softmax(vectorize(logits));
-    // std::cout << "LBNetV1: ps.T=\n" << ps.transpose() << std::endl;
+    // std::cout << "LBNet: ps.T=\n" << ps.transpose() << std::endl;
     return ps;
   }
   
@@ -111,46 +112,75 @@ public:
   int select_server(Eigen::MatrixXd server_features) {
     return weighted_random(forward(server_features));
   }
+
+  virtual int version() = 0;
 };
 
-LBNetV1 build_model(std::pair<std::string, ParamDict> args) {
+class LBNetV1: public LBNet {
+public:
+  LBNetV1(const ParamDict &param_dict) : LBNet(param_dict) {}
+  int version() override {
+    return 1;
+  }
+};
+
+class LBNetV2: public LBNet {
+public:
+  LBNetV2(const ParamDict &param_dict) : LBNet(param_dict) {}
+  int version() override {
+    return 2;
+  }
+};
+
+LBNet* build_model(std::pair<std::string, ParamDict> args) {
   if (args.first == "lbnetv1") {
-    std::cerr << "lbnetv1 is deprecated to unify feature extraction" << std::endl;
-    exit(-1);
-    // return LBNetV1(args.second);
+    return new LBNetV1(args.second);
   } else if (args.first == "lbnetv2") {
     // lbnetv2 also shares same architecture but has a different input
-    return LBNetV1(args.second);
+    return new LBNetV2(args.second);
   }
   std::cerr << "Invalid model_name: " << args.first << std::endl;
   exit(-1);
 }
 
-const int HISTORY_LENGTH = 10;  // TODO: configurable
+const int HISTORY_LENGTH_V1 = 4;  // TODO: configurable
+const int HISTORY_LENGTH_V2 = 10;  // TODO: configurable
 
 class ServerStat {
 public:
   void* server_struct_;  // struct server
+  int history_length_;
   std::deque<int> num_conns_history_;
   std::deque<double> throughput_history_;
   int current_num_conns_;
   std::chrono::time_point<std::chrono::system_clock> begin_time_;
   int completed_count_;
 
-  ServerStat(void* server_struct)
+  ServerStat(void* server_struct, int history_length)
     : server_struct_(server_struct),
+      history_length_(history_length),
       num_conns_history_(),
       throughput_history_(),
       current_num_conns_(0),
       begin_time_(std::chrono::system_clock::now()),
       completed_count_(0) {}
 
-  void fill_feature(Eigen::MatrixXd &server_features, int row_idx) {
-    assert(server_features.cols() == 2 * HISTORY_LENGTH);
-    assert(num_conns_history_.size() <= HISTORY_LENGTH);
-    assert(throughput_history_.size() <= HISTORY_LENGTH);
-    int col_idx = HISTORY_LENGTH - num_conns_history_.size();
-    for (int i = std::max(0, (int) num_conns_history_.size() - HISTORY_LENGTH); i < num_conns_history_.size(); ++i, col_idx += 2) {
+  void fill_feature_v1(Eigen::MatrixXd &server_features, int row_idx) {
+    assert(server_features.cols() == history_length_);
+    assert(num_conns_history_.size() <= history_length_);
+    assert(throughput_history_.size() <= history_length_);
+    int col_idx = history_length_ - num_conns_history_.size();
+    for (int i = std::max(0, (int) num_conns_history_.size() - history_length_); i < num_conns_history_.size(); ++i, ++col_idx) {
+      server_features(row_idx, col_idx) = num_conns_history_[i];
+    }
+  }
+
+  void fill_feature_v2(Eigen::MatrixXd &server_features, int row_idx) {
+    assert(server_features.cols() == 2 * history_length_);
+    assert(num_conns_history_.size() <= history_length_);
+    assert(throughput_history_.size() <= history_length_);
+    int col_idx = history_length_ - num_conns_history_.size();
+    for (int i = std::max(0, (int) num_conns_history_.size() - history_length_); i < num_conns_history_.size(); ++i, col_idx += 2) {
       server_features(row_idx, col_idx) = num_conns_history_[i];
       server_features(row_idx, col_idx + 1) = throughput_history_[i];
     }
@@ -172,7 +202,7 @@ public:
     double uptime_ms = (std::chrono::system_clock::now() - begin_time_).count() * 1000;
     num_conns_history_.push_back(current_num_conns_);
     throughput_history_.push_back(completed_count_ / uptime_ms);
-    while (num_conns_history_.size() > HISTORY_LENGTH) {
+    while (num_conns_history_.size() > history_length_) {
       num_conns_history_.pop_front();
       throughput_history_.pop_front();
     }
@@ -180,18 +210,38 @@ public:
 };
 
 class ModelLB {
-  LBNetV1 model_;
+  std::unique_ptr<LBNet> model_;
   std::map<int, ServerStat> server_stats_;
   int server_counter_ = 0;
   
-  Eigen::MatrixXd get_server_features() {
-    Eigen::MatrixXd server_features(server_stats_.size(), 2 * HISTORY_LENGTH);
+  Eigen::MatrixXd get_server_features_v1() {
+    Eigen::MatrixXd server_features(server_stats_.size(), HISTORY_LENGTH_V1);
     int row_idx = 0;
     for (auto& [server_id, server_stat] : server_stats_) {
       // std::cout << "fill feature from [" << server_id << "]" << std::endl;
-      server_stat.fill_feature(server_features, row_idx++);
+      server_stat.fill_feature_v1(server_features, row_idx++);
     }
     return server_features;
+  }
+  
+  Eigen::MatrixXd get_server_features_v2() {
+    Eigen::MatrixXd server_features(server_stats_.size(), 2 * HISTORY_LENGTH_V2);
+    int row_idx = 0;
+    for (auto& [server_id, server_stat] : server_stats_) {
+      // std::cout << "fill feature from [" << server_id << "]" << std::endl;
+      server_stat.fill_feature_v2(server_features, row_idx++);
+    }
+    return server_features;
+  }
+  
+  Eigen::MatrixXd get_server_features() {
+    switch (model_->version()) {
+      case 1: return get_server_features_v1();
+      case 2: return get_server_features_v2();
+      default:
+        std::cerr << "Invalid model version: " << model_->version() << std::endl;
+        exit(-1);
+    }
   }
 
   void* get_server(int idx) {
@@ -216,7 +266,15 @@ public:
   int server_up(void* server_struct) {
     int server_id = ++server_counter_;
     // std::cout << "server_up [" << server_id << "]" << std::endl;
-    server_stats_.emplace(server_id, ServerStat(server_struct));
+    switch (model_->version()) {
+      case 1: server_stats_.emplace(server_id, ServerStat(server_struct, HISTORY_LENGTH_V1));
+        break;
+      case 2: server_stats_.emplace(server_id, ServerStat(server_struct, HISTORY_LENGTH_V2));
+        break;
+      default:
+        std::cerr << "Invalid model version: " << model_->version() << std::endl;
+        exit(-1);
+    }
     return server_id;
   }
 
@@ -248,7 +306,7 @@ public:
   }
 
   void* select_server() {
-    return get_server(model_.select_server(get_server_features()));
+    return get_server(model_->select_server(get_server_features()));
   }
 
 };
