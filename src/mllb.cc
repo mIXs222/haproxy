@@ -1,6 +1,7 @@
 #include "haproxy/mllb.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
@@ -35,14 +36,16 @@ std::optional<std::pair<std::string, Eigen::MatrixXd>> parse_one(std::ifstream &
   return std::make_pair(name, mat);
 }
 
-ParamDict parse_param_dict(const std::string &param_path) {
+std::pair<std::string, ParamDict> parse_param_dict(const std::string &param_path) {
   std::ifstream param_f(param_path);
   ParamDict param_dict;
+  std::string model_name; param_f >> model_name;
+  // std::cout << "\tmodel_name= " << model_name << std::endl; 
   while(auto named_param = parse_one(param_f)) {
     // std::cout << "Parsed " << named_param->first << ", " << named_param->second << std::endl; 
     param_dict[named_param->first] = named_param->second;
   }
-  return param_dict;
+  return std::make_pair(model_name, param_dict);
 }
 
 inline Eigen::MatrixXd relu(const Eigen::MatrixXd &x) {
@@ -110,21 +113,46 @@ public:
   }
 };
 
-const int HISTORY_LENGTH = 4;  // TODO: configurable
+LBNetV1 build_model(std::pair<std::string, ParamDict> args) {
+  if (args.first == "lbnetv1") {
+    std::cerr << "lbnetv1 is deprecated to unify feature extraction" << std::endl;
+    exit(-1);
+    // return LBNetV1(args.second);
+  } else if (args.first == "lbnetv2") {
+    // lbnetv2 also shares same architecture but has a different input
+    return LBNetV1(args.second);
+  }
+  std::cerr << "Invalid model_name: " << args.first << std::endl;
+  exit(-1);
+}
+
+const int HISTORY_LENGTH = 10;  // TODO: configurable
 
 class ServerStat {
 public:
   void* server_struct_;  // struct server
   std::deque<int> num_conns_history_;
+  std::deque<double> throughput_history_;
   int current_num_conns_;
+  std::chrono::time_point<std::chrono::system_clock> begin_time_;
+  int completed_count_;
 
-  ServerStat(void* server_struct) : server_struct_(server_struct), num_conns_history_(), current_num_conns_(0) {}
+  ServerStat(void* server_struct)
+    : server_struct_(server_struct),
+      num_conns_history_(),
+      throughput_history_(),
+      current_num_conns_(0),
+      begin_time_(std::chrono::system_clock::now()),
+      completed_count_(0) {}
+
   void fill_feature(Eigen::MatrixXd &server_features, int row_idx) {
-    assert(server_features.cols() == HISTORY_LENGTH);
+    assert(server_features.cols() == 2 * HISTORY_LENGTH);
     assert(num_conns_history_.size() <= HISTORY_LENGTH);
+    assert(throughput_history_.size() <= HISTORY_LENGTH);
     int col_idx = HISTORY_LENGTH - num_conns_history_.size();
-    for (int i = std::max(0, (int) num_conns_history_.size() - HISTORY_LENGTH); i < num_conns_history_.size(); ++i, ++col_idx) {
+    for (int i = std::max(0, (int) num_conns_history_.size() - HISTORY_LENGTH); i < num_conns_history_.size(); ++i, col_idx += 2) {
       server_features(row_idx, col_idx) = num_conns_history_[i];
+      server_features(row_idx, col_idx + 1) = throughput_history_[i];
     }
   }
 
@@ -136,13 +164,17 @@ public:
   void drop_conn() {
     --current_num_conns_;
     --current_num_conns_;  // BUG: why see take_conn twice?
+    ++completed_count_;
     assert(current_num_conns_ >= 0);
   }
 
   void record_history() {
+    double uptime_ms = (std::chrono::system_clock::now() - begin_time_).count() * 1000;
     num_conns_history_.push_back(current_num_conns_);
+    throughput_history_.push_back(completed_count_ / uptime_ms);
     while (num_conns_history_.size() > HISTORY_LENGTH) {
       num_conns_history_.pop_front();
+      throughput_history_.pop_front();
     }
   }
 };
@@ -153,7 +185,7 @@ class ModelLB {
   int server_counter_ = 0;
   
   Eigen::MatrixXd get_server_features() {
-    Eigen::MatrixXd server_features(server_stats_.size(), HISTORY_LENGTH);
+    Eigen::MatrixXd server_features(server_stats_.size(), 2 * HISTORY_LENGTH);
     int row_idx = 0;
     for (auto& [server_id, server_stat] : server_stats_) {
       // std::cout << "fill feature from [" << server_id << "]" << std::endl;
@@ -176,9 +208,7 @@ class ModelLB {
 
 public:
   ModelLB(char param_path[])
-    : model_(LBNetV1(
-        parse_param_dict(std::string(param_path))
-      )),
+    : model_(build_model(parse_param_dict(std::string(param_path)))),
       server_stats_() {}
 
   ~ModelLB() = default;
